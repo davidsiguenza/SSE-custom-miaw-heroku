@@ -1,0 +1,23 @@
+# Dependencias
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Archivos de entorno
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# Archivos de registro
+*.log
+logs/
+
+# Directorios de construcción
+dist/
+build/
