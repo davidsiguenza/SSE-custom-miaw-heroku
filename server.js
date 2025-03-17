@@ -44,8 +44,8 @@ app.get('/sse-proxy', async (req, res) => {
     const response = await fetch(sseUrl, {
       method: 'GET',
       headers: {
-        Accept: 'text/event-stream',
-        Authorization: `Bearer ${accessToken}`,
+        'Accept': 'text/event-stream',
+        'Authorization': `Bearer ${accessToken}`,
         'X-Org-Id': orgId
       }
     });
@@ -56,32 +56,36 @@ app.get('/sse-proxy', async (req, res) => {
       return res.status(response.status).send(`Error del servidor SSE: ${response.status} - ${errMsg}`);
     }
     
-    // Configuramos los headers de la respuesta para SSE
-    res.set({
+    // IMPORTANTE: Configuramos los headers de la respuesta para SSE
+    // Esto garantiza que el cliente reciba el tipo MIME correcto
+    res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no', // Para servidores Nginx
+      'X-Accel-Buffering': 'no',
       'Access-Control-Allow-Origin': '*'
     });
     
     console.log(`[${new Date().toISOString()}] Conexión SSE establecida para conversationId: ${conversationId}`);
     
-    // Indicamos que el cliente está conectado
+    // Enviar evento inicial para confirmar la conexión
     res.write('event: connected\ndata: {"status":"connected"}\n\n');
     
-    // Configuramos un ping para mantener la conexión viva
+    // Configuramos un ping cada 30 segundos para mantener la conexión viva
     const pingInterval = setInterval(() => {
-      if (!res.finished) {
+      if (!res.writableEnded) {
+        console.log(`[${new Date().toISOString()}] Enviando ping para mantener conexión viva`);
         res.write('event: ping\ndata: {"time":"' + new Date().toISOString() + '"}\n\n');
       } else {
         clearInterval(pingInterval);
       }
-    }, 30000); // Cada 30 segundos
+    }, 30000);
     
-    // Transmitir el cuerpo (stream) de la respuesta al cliente
+    // Manejamos el stream de eventos desde Salesforce y lo reenviamos al cliente
     response.body.on('data', (chunk) => {
-      if (!res.finished) {
+      if (!res.writableEnded) {
+        const chunkStr = chunk.toString();
+        console.log(`[${new Date().toISOString()}] Recibido chunk de datos: ${chunkStr.substring(0, 50)}...`);
         res.write(chunk);
       }
     });
@@ -90,7 +94,7 @@ app.get('/sse-proxy', async (req, res) => {
       console.log(`[${new Date().toISOString()}] Conexión SSE finalizada por el servidor para conversationId: ${conversationId}`);
       clearInterval(pingInterval);
       
-      if (!res.finished) {
+      if (!res.writableEnded) {
         res.write('event: closed\ndata: {"status":"closed_by_server"}\n\n');
         res.end();
       }
@@ -100,13 +104,13 @@ app.get('/sse-proxy', async (req, res) => {
       console.error(`[${new Date().toISOString()}] Error en el stream SSE: ${err.message}`);
       clearInterval(pingInterval);
       
-      if (!res.finished) {
+      if (!res.writableEnded) {
         res.write(`event: error\ndata: {"error":"${err.message}"}\n\n`);
         res.end();
       }
     });
     
-    // Si la conexión se cierra, finalizamos el stream
+    // Si la conexión se cierra desde el cliente, limpiamos recursos
     req.on('close', () => {
       console.log(`[${new Date().toISOString()}] Cliente cerró la conexión SSE para conversationId: ${conversationId}`);
       clearInterval(pingInterval);
